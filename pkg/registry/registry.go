@@ -127,6 +127,8 @@ func (r *Registry) handle(rw mux.ResponseWriter, req *http.Request) {
 
 		kvs := []interface{}{
 			"path", req.URL.Path,
+			"accept", req.Header.Get("Accept"),
+			"content-type", rw.Header().Get("Content-Type"),
 			"status", rw.Status(),
 			"method", req.Method,
 			"latency", latency.String(),

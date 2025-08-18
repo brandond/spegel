@@ -380,8 +380,10 @@ func (c *Containerd) GetManifest(ctx context.Context, dgst digest.Digest) ([]byt
 }
 
 func (c *Containerd) GetBlob(ctx context.Context, dgst digest.Digest) (io.ReadSeekCloser, error) {
+	log := logr.FromContextOrDiscard(ctx)
 	if c.contentPath != "" {
 		path := filepath.Join(c.contentPath, "blobs", dgst.Algorithm().String(), dgst.Encoded())
+		log.Info("Serving blob from disk", "path", path)
 		file, err := os.Open(path)
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, errors.Join(ErrNotFound, err)
@@ -489,10 +491,6 @@ func parseContentRegistries(l map[string]string) []string {
 func createFilters(mirroredRegistries []url.URL) ([]string, []string, []string) {
 	registryHosts := []string{}
 	for _, registry := range mirroredRegistries {
-		if registry.Host == "*" || registry.Host == "_default" {
-			registryHosts = []string{".+"}
-			break
-		}
 		registryHosts = append(registryHosts, strings.ReplaceAll(registry.Host, `.`, `\\.`))
 	}
 	imageFilter := fmt.Sprintf(`name~="^(%s)/"`, strings.Join(registryHosts, "|"))

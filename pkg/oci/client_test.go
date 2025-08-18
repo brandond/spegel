@@ -90,7 +90,9 @@ func TestPull(t *testing.T) {
 		Digest:     digest.Digest("index"),
 		Registry:   "example.com",
 	}
-	client := NewClient()
+	client, err := NewClient()
+	require.NoError(t, err)
+
 	pullResults, err := client.Pull(t.Context(), img, srv.URL)
 	require.NoError(t, err)
 

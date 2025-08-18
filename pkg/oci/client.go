@@ -29,11 +29,29 @@ type Client struct {
 	tc sync.Map
 }
 
-func NewClient() *Client {
-	return &Client{
+type ClientOption func(*Client) error
+
+func WithTransport(transport http.RoundTripper) ClientOption {
+	return func(c *Client) error {
+		c.hc.Transport = transport
+		return nil
+	}
+}
+
+func NewClient(opts ...ClientOption) (*Client, error) {
+	c := &Client{
 		hc: &http.Client{},
 		tc: sync.Map{},
 	}
+	for _, opt := range opts {
+		if opt == nil {
+			continue
+		}
+		if err := opt(c); err != nil {
+			return nil, err
+		}
+	}
+	return c, nil
 }
 
 type PullMetric struct {

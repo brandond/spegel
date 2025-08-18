@@ -22,12 +22,12 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/spegel-org/spegel/internal/cleanup"
-	"github.com/spegel-org/spegel/internal/web"
 	"github.com/spegel-org/spegel/pkg/metrics"
 	"github.com/spegel-org/spegel/pkg/oci"
 	"github.com/spegel-org/spegel/pkg/registry"
 	"github.com/spegel-org/spegel/pkg/routing"
 	"github.com/spegel-org/spegel/pkg/state"
+	"github.com/spegel-org/spegel/pkg/web"
 )
 
 type ConfigurationCmd struct {
@@ -173,7 +173,7 @@ func registryCommand(ctx context.Context, args *RegistryCmd) (err error) {
 
 	// State tracking
 	g.Go(func() error {
-		err := state.Track(ctx, ociStore, router, args.ResolveLatestTag)
+		err := state.Track(ctx, ociStore, router, state.WithResolveLatestTag(args.ResolveLatestTag))
 		if err != nil {
 			return err
 		}
@@ -224,11 +224,11 @@ func registryCommand(ctx context.Context, args *RegistryCmd) (err error) {
 	mux.Handle("/debug/pprof/block", pprof.Handler("block"))
 	mux.Handle("/debug/pprof/mutex", pprof.Handler("mutex"))
 	if args.DebugWebEnabled {
-		web, err := web.NewWeb(router)
+		web, err := web.NewWeb(router, web.WithLogger(log))
 		if err != nil {
 			return err
 		}
-		mux.Handle("/debug/web/", web.Handler(log))
+		mux.Handle("/debug/web/", web.Handler())
 	}
 	metricsSrv := &http.Server{
 		Addr:    args.MetricsAddr,

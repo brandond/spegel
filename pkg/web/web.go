@@ -21,13 +21,46 @@ import (
 //go:embed templates/*
 var templatesFS embed.FS
 
-type Web struct {
-	router routing.Router
-	client *oci.Client
-	tmpls  *template.Template
+type WebOption func(*Web) error
+
+func WithLogger(log logr.Logger) WebOption {
+	return func(w *Web) error {
+		w.log = log
+		return nil
+	}
 }
 
-func NewWeb(router routing.Router) (*Web, error) {
+func WithTransport(transport http.RoundTripper) WebOption {
+	return func(w *Web) error {
+		w.hc.Transport = transport
+		return nil
+	}
+}
+
+func WithOCI(client *oci.Client) WebOption {
+	return func(w *Web) error {
+		w.oc = client
+		return nil
+	}
+}
+
+func WithAddress(addr string) WebOption {
+	return func(w *Web) error {
+		w.addr = addr
+		return nil
+	}
+}
+
+type Web struct {
+	router routing.Router
+	log    logr.Logger
+	hc     *http.Client
+	oc     *oci.Client
+	tmpls  *template.Template
+	addr   string
+}
+
+func NewWeb(router routing.Router, opts ...WebOption) (*Web, error) {
 	funcs := template.FuncMap{
 		"formatBytes":    formatBytes,
 		"formatDuration": formatDuration,
@@ -36,15 +69,34 @@ func NewWeb(router routing.Router) (*Web, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Web{
+
+	oc, err := oci.NewClient()
+	if err != nil {
+		return nil, err
+	}
+
+	w := &Web{
 		router: router,
-		client: oci.NewClient(),
+		log:    logr.Discard(),
+		hc:     &http.Client{},
+		oc:     oc,
 		tmpls:  tmpls,
-	}, nil
+	}
+
+	for _, opt := range opts {
+		if opt == nil {
+			continue
+		}
+		if err := opt(w); err != nil {
+			return nil, err
+		}
+	}
+
+	return w, nil
 }
 
-func (w *Web) Handler(log logr.Logger) http.Handler {
-	m := httpx.NewServeMux(log)
+func (w *Web) Handler() http.Handler {
+	m := httpx.NewServeMux(w.log)
 	m.Handle("GET /debug/web/", w.indexHandler)
 	m.Handle("GET /debug/web/stats", w.statsHandler)
 	m.Handle("GET /debug/web/measure", w.measureHandler)
@@ -60,14 +112,16 @@ func (w *Web) indexHandler(rw httpx.ResponseWriter, req *http.Request) {
 }
 
 func (w *Web) statsHandler(rw httpx.ResponseWriter, req *http.Request) {
-	//nolint: errcheck // Ignore error.
-	srvAddr := req.Context().Value(http.LocalAddrContextKey).(net.Addr)
-	resp, err := http.Get(fmt.Sprintf("http://%s/metrics", srvAddr.String()))
+	resp, err := w.hc.Get(w.baseURL(req) + "/metrics")
 	if err != nil {
 		rw.WriteError(http.StatusInternalServerError, err)
 		return
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		rw.WriteError(http.StatusInternalServerError, fmt.Errorf("invalid metrics response status %s", resp.Status))
+		return
+	}
 	parser := expfmt.TextParser{}
 	metricFamilies, err := parser.TextToMetricFamilies(resp.Body)
 	if err != nil {
@@ -79,11 +133,15 @@ func (w *Web) statsHandler(rw httpx.ResponseWriter, req *http.Request) {
 		ImageCount int64
 		LayerCount int64
 	}{}
-	for _, metric := range metricFamilies["spegel_advertised_images"].Metric {
-		data.ImageCount += int64(*metric.Gauge.Value)
+	if mf, ok := metricFamilies["spegel_advertised_images"]; ok {
+		for _, metric := range mf.Metric {
+			data.ImageCount += int64(*metric.Gauge.Value)
+		}
 	}
-	for _, metric := range metricFamilies["spegel_advertised_keys"].Metric {
-		data.LayerCount += int64(*metric.Gauge.Value)
+	if mf, ok := metricFamilies["spegel_advertised_keys"]; ok {
+		for _, metric := range mf.Metric {
+			data.LayerCount += int64(*metric.Gauge.Value)
+		}
 	}
 	err = w.tmpls.ExecuteTemplate(rw, "stats.html", data)
 	if err != nil {
@@ -145,7 +203,7 @@ func (w *Web) measureHandler(rw httpx.ResponseWriter, req *http.Request) {
 
 	if len(res.PeerResults) > 0 {
 		// Pull the image and measure performance.
-		pullMetrics, err := w.client.Pull(req.Context(), img, "http://localhost:5000")
+		pullMetrics, err := w.oc.Pull(req.Context(), img, w.baseURL(req))
 		if err != nil {
 			rw.WriteError(http.StatusInternalServerError, err)
 			return
@@ -203,4 +261,17 @@ func formatDuration(d time.Duration) string {
 		out += fmt.Sprintf("%dms", milliseconds)
 	}
 	return out
+}
+
+func (w *Web) baseURL(req *http.Request) string {
+	addr := w.addr
+	if addr == "" {
+		//nolint: errcheck // Ignore error.
+		srvAddr := req.Context().Value(http.LocalAddrContextKey).(net.Addr)
+		addr = srvAddr.String()
+	}
+	if req.TLS != nil {
+		return "https://" + addr
+	}
+	return "http://" + addr
 }

@@ -424,6 +424,7 @@ func (c *Containerd) GetBlob(ctx context.Context, dgst digest.Digest) (io.ReadSe
 }
 
 func (c *Containerd) convertEvent(ctx context.Context, envelope events.Envelope) ([]OCIEvent, error) {
+	log := logr.FromContextOrDiscard(ctx)
 	client, err := c.Client()
 	if err != nil {
 		return nil, err
@@ -461,6 +462,7 @@ func (c *Containerd) convertEvent(ctx context.Context, envelope events.Envelope)
 		}
 		// Pull by tag creates an event only for the tag. We dont get content to avoid advertising twice.
 		if img.Digest == "" {
+			log.V(1).Info("Skip walking image for event without digest", "name", e.GetName())
 			return []OCIEvent{{Type: CreateEvent, Key: e.GetName()}}, nil
 		}
 		// If Containerd supports content events we can skip walking the image.
@@ -471,12 +473,14 @@ func (c *Containerd) convertEvent(ctx context.Context, envelope events.Envelope)
 		if feats.Has(FeatureContentEvent) {
 			return nil, nil
 		}
+		log.V(1).Info("Walking image", "name", e.GetName(), "digest", img.Digest)
 		dgsts, err := WalkImage(ctx, c, img)
 		if err != nil {
 			return nil, fmt.Errorf("could not get digests for image %s: %w", img.String(), err)
 		}
 		events := []OCIEvent{}
 		for _, dgst := range dgsts {
+			log.V(1).Info("Adding image content", "name", e.GetName(), "key", dgst.String())
 			events = append(events, OCIEvent{Type: CreateEvent, Key: dgst.String()})
 		}
 		return events, nil

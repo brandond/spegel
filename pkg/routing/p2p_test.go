@@ -235,9 +235,7 @@ func TestListenMultiaddrs(t *testing.T) {
 			name: "listen address type not specified",
 			addr: ":9090",
 			expectedListenAddrs: []ma.Multiaddr{
-				ma.StringCast("/ip6/::/udp/9090/quic-v1"),
 				ma.StringCast("/ip6/::/tcp/9090"),
-				ma.StringCast("/ip4/0.0.0.0/udp/9090/quic-v1"),
 				ma.StringCast("/ip4/0.0.0.0/tcp/9090"),
 			},
 		},
@@ -245,7 +243,6 @@ func TestListenMultiaddrs(t *testing.T) {
 			name: "ipv4 only",
 			addr: "192.168.1.24:7892",
 			expectedListenAddrs: []ma.Multiaddr{
-				ma.StringCast("/ip4/192.168.1.24/udp/7892/quic-v1"),
 				ma.StringCast("/ip4/192.168.1.24/tcp/7892"),
 			},
 		},
@@ -253,7 +250,6 @@ func TestListenMultiaddrs(t *testing.T) {
 			name: "ipv6 only",
 			addr: "[::]:9090",
 			expectedListenAddrs: []ma.Multiaddr{
-				ma.StringCast("/ip6/::/udp/9090/quic-v1"),
 				ma.StringCast("/ip6/::/tcp/9090"),
 			},
 		},
